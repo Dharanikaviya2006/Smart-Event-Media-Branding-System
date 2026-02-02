@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Photo Brander</title>
+    <style>
+        :root {
+            --primary: #007bff;
+            --success: #28a745;
+            --bg: #f4f4f9;
+        }
+        body {
+            font-family: 'Times New Roman', 'Calbri ', 'Lora', 'Cambria', sans-serif;
+            background-color: #b9af8ec1;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            max-width: 800px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 { margin-bottom: 20px; color: #333; }
+
+        .controls {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            width: 95%; 
+        }
+        input[type="file"] {
+            padding: 10px;
+            background: #eee;
+            border-radius: 6px;
+        }
+
+        .canvas-container {
+            width: 100%;
+            overflow: hidden;
+            margin-bottom: 20px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #fafafa;
+            position: relative;
+            touch-action: none; 
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            cursor: grab;
+        }
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        
+        .actions {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-download { background-color: var(--primary); color: white; }
+        .btn-share { background-color: var(--success); color: white; }
+
+        .hidden { display: none; }
+
+        .hint {
+            font-size: 12px;
+            color: #666;
+            margin-top: -15px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body >
+
+<div class="container">
+    <h1>Event Photo Brander</h1>
+
+    <div class="controls">
+        <input type="file" id="imageInput" accept="image/*">
+        <input type="text" id="captionInput" placeholder="Enter your caption here...">
+    </div>
+
+    <div class="canvas-container">
+        <p id="placeholderText">Upload an image to start</p>
+        <canvas id="photoCanvas" class="hidden"></canvas>
+    </div>
+    <p class="hint hidden" id="dragHint">💡 You can drag the logo to reposition it.</p>
+
+    <div class="actions">
+        <button id="downloadBtn" class="btn-download" disabled>Download Image</button>
+        <button id="shareBtn" class="btn-share" disabled>Share</button>
+    </div>
+</div>
+
+<script>
+    const imageInput = document.getElementById('imageInput');
+    const captionInput = document.getElementById('captionInput');
+    const canvas = document.getElementById('photoCanvas');
+    const ctx = canvas.getContext('2d');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const shareBtn = document.getElementById('shareBtn');
+    const placeholderText = document.getElementById('placeholderText');
+    const dragHint = document.getElementById('dragHint');
+
+    let uploadedImage = new Image();
+    let logoImage = new Image();
+    logoImage.src = "/static/he5logo.png";
+
+    let isImageLoaded = false;
+    let isLogoLoaded = false;
+    const PROMO_HASHTAGS = "\n\n#he5solutions #itconsulting #remodeling";
+
+    let logoState = {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        isDragging: false,
+        dragOffsetX: 0,
+        dragOffsetY: 0
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const savedCaption = localStorage.getItem('he5_caption');
+        if (savedCaption) {
+            captionInput.value = savedCaption;
+        }
+    });
+
+    captionInput.addEventListener('input', () => {
+        localStorage.setItem('he5_caption', captionInput.value);
+        drawCanvas();
+    });
+
+    logoImage.onload = () => {
+        isLogoLoaded = true;
+        if (isImageLoaded) drawCanvas();
+    };
+
+    imageInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            uploadedImage.onload = () => {
+                isImageLoaded = true;
+                canvas.classList.remove('hidden');
+                placeholderText.classList.add('hidden');
+                dragHint.classList.remove('hidden');
+
+                logoState.x = 0;
+                logoState.y = 0;
+
+                downloadBtn.disabled = false;
+                shareBtn.disabled = false;
+
+                drawCanvas();
+            };
+            uploadedImage.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    function drawCanvas() {
+        if (!isImageLoaded) return;
+        canvas.width = uploadedImage.naturalWidth;
+        canvas.height = uploadedImage.naturalHeight;
+
+        ctx.drawImage(uploadedImage, 0, 0);
+
+        if (isLogoLoaded && logoImage.naturalWidth > 0) {
+            
+            const targetWidth = canvas.width * 0.15;
+            const aspectRatio = logoImage.naturalHeight / logoImage.naturalWidth;
+            const targetHeight = targetWidth * aspectRatio;
+            logoState.width = targetWidth;
+            logoState.height = targetHeight;
+
+            logoState.x = Math.max(0, Math.min(canvas.width - targetWidth, logoState.x));
+            logoState.y = Math.max(0, Math.min(canvas.height - targetHeight, logoState.y));
+
+           
+            ctx.drawImage(logoImage, logoState.x, logoState.y, targetWidth, targetHeight);
+        }
+
+        const text = captionInput.value;
+        if (text) {
+            const fontSize = canvas.height * 0.05;
+            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+
+            
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = fontSize * 0.1;
+
+            const x = canvas.width / 2;
+            const y = canvas.height - (canvas.height * 0.02);
+
+            ctx.strokeText(text, x, y);
+            ctx.fillText(text, x, y);
+        }
+    }
+
+ 
+    function getCanvasCoordinates(event) {
+        const rect = canvas.getBoundingClientRect();
+
+        let clientX, clientY;
+        if (event.touches && event.touches.length > 0) {
+            clientX = event.touches[0].clientX;
+            clientY = event.touches[0].clientY;
+        } else {
+            clientX = event.clientX;
+            clientY = event.clientY;
+        }
+
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
+    }
+
+    function handleStart(e) {
+        if (!isImageLoaded || !isLogoLoaded) return;
+
+        
+        if(e.type === 'touchstart') e.preventDefault();
+
+        const mousePos = getCanvasCoordinates(e);
+
+        if (
+            mousePos.x >= logoState.x &&
+            mousePos.x <= logoState.x + logoState.width &&
+            mousePos.y >= logoState.y &&
+            mousePos.y <= logoState.y + logoState.height
+        ) {
+            logoState.isDragging = true;
+            logoState.dragOffsetX = mousePos.x - logoState.x;
+            logoState.dragOffsetY = mousePos.y - logoState.y;
+        }
+    }
+
+    function handleMove(e) {
+        if (!logoState.isDragging) return;
+        if(e.type === 'touchmove') e.preventDefault(); 
+
+        const mousePos = getCanvasCoordinates(e);
+
+        logoState.x = mousePos.x - logoState.dragOffsetX;
+        logoState.y = mousePos.y - logoState.dragOffsetY;
+        drawCanvas();
+    }
+
+    function handleEnd(e) {
+        logoState.isDragging = false;
+    }
+
+    canvas.addEventListener('mousedown', handleStart);
+    canvas.addEventListener('mousemove', handleMove);
+    canvas.addEventListener('mouseup', handleEnd);
+    canvas.addEventListener('mouseleave', handleEnd);
+
+    canvas.addEventListener('touchstart', handleStart, { passive: false });
+    canvas.addEventListener('touchmove', handleMove, { passive: false });
+    canvas.addEventListener('touchend', handleEnd);
+    async function sendToBackend() {
+        const dataUrl = canvas.toDataURL("image/png");
+        const caption = captionInput.value;
+
+        try {
+            const response = await fetch('/save-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: dataUrl, caption: caption })
+            });
+
+            if (!response.ok) throw new Error("Backend error");
+            return await response.json();
+        } catch (error) {
+            alert("Error communicating with server: " + error.message);
+            return null;
+        }
+    }
+
+    downloadBtn.addEventListener('click', async () => {
+        downloadBtn.textContent = "Processing...";
+        downloadBtn.disabled = true;
+
+        const data = await sendToBackend();
+
+        if (data && data.download_url) {
+            window.location.href = data.download_url;
+        }
+
+        downloadBtn.textContent = "Download Image";
+        downloadBtn.disabled = false;
+    });
+
+    shareBtn.addEventListener('click', () => {
+        const originalText = shareBtn.textContent;
+        shareBtn.textContent = "Preparing Share...";
+        shareBtn.disabled = true;
+
+        canvas.toBlob(async (blob) => {
+            if (!blob) {
+                alert("Error generating image.");
+                shareBtn.textContent = originalText;
+                shareBtn.disabled = false;
+                return;
+            }
+
+            const file = new File([blob], "he5-branded-photo.png", { type: "image/png" });
+            const userCaption = captionInput.value.trim();
+            const fullCaption = (userCaption ? userCaption : "Check out this photo!") + PROMO_HASHTAGS;
+
+            const shareData = {
+                files: [file],
+                title: 'HE5 Event Photo',
+                text: fullCaption
+            };
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                try {
+                    await navigator.share(shareData);
+                    shareBtn.textContent = "Shared!";
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        fallbackShare(blob, fullCaption);
+                    }
+                }
+            } else {
+                fallbackShare(blob, fullCaption);
+            }
+
+            setTimeout(() => {
+                shareBtn.textContent = originalText;
+                shareBtn.disabled = false;
+            }, 2000);
+        }, 'image/png');
+    });
+
+    function fallbackShare(blob, fullText) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "he5-branded-photo.png";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        navigator.clipboard.writeText(fullText).then(() => {
+            alert("Image downloaded & caption copied to clipboard:\n" + fullText);
+        }).catch(() => {
+            alert("Image downloaded!");
+        });
+    }
+</script>
+
+</body>
+</html>
